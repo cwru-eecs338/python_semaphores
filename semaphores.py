@@ -12,7 +12,8 @@ from sysv_ipc import Semaphore, SharedMemory, IPC_CREAT, IPC_EXCL, IPC_PRIVATE
 
 def print_with_pid(*objects, **kwargs):
     """
-    Functions as a drop-in replacement for __builtins__.print
+    Functions as a drop-in replacement for __builtins__.print.
+    Prepends the process ID to everything that is printed.
     """
     if objects:
         # Bit of a hack: if you provide at least one positional argument,
@@ -24,12 +25,17 @@ def print_with_pid(*objects, **kwargs):
 
 print = print_with_pid
 
+# Global constant:
 BUF_SIZE = 3
+
 class LuckyCharm:
     """
     Inspired by the python_threads example at
     https://github.com/cwru-eecs338/python_threads
     """
+    # TODO: Be smarter about character encoding.
+    # Either encode as Latin-1 or multiply by 4 for the
+    # maximum width of a character in UTF-8.
     MAX_CHARM_NAME_LENGTH = 32
     STRUCT_PACK_FORMAT = '{}sii'.format(MAX_CHARM_NAME_LENGTH)
     STRUCT_PACK_SIZE = struct.calcsize(STRUCT_PACK_FORMAT)
@@ -64,6 +70,9 @@ class LuckyCharm:
 
     @classmethod
     def unpack(cls, data):
+        """
+        Creates a LuckyCharm object from a byte string.
+        """
         args = struct.unpack(cls.STRUCT_PACK_FORMAT, data)
         return cls(*args)
 
@@ -81,9 +90,12 @@ SHARED_MEMORY_SIZE = LuckyCharm.STRUCT_PACK_SIZE * BUF_SIZE
 
 def consumer(shm, mutex, empty, full):
     nextc = 0
+    # We don't want to iterate over the CHARMS list; we just need
+    # to know how many times to read from the shared memory.
     for _ in range(CHARM_COUNT):
         full.acquire()
         mutex.acquire()
+        # Pointer arithmetic is actually nicer in C:
         offset = nextc * LuckyCharm.STRUCT_PACK_SIZE
         packed_data = shm.read(LuckyCharm.STRUCT_PACK_SIZE, offset=offset)
         charm = LuckyCharm.unpack(packed_data)
@@ -95,10 +107,13 @@ def consumer(shm, mutex, empty, full):
 
 def producer(shm, mutex, empty, full):
     nextp = 0
+    # Iterate directly over the CHARMS list. We'll serialize these
+    # objects into the shared memory buffer
     for charm in CHARMS:
         empty.acquire()
         mutex.acquire()
         print('Producing: {}'.format(charm))
+        # Pointer arithmetic is actually nicer in C:
         offset = nextp * LuckyCharm.STRUCT_PACK_SIZE
         packed_data = charm.pack()
         # Note: can *not* use "offset" as a keyword argument.
@@ -118,17 +133,18 @@ def main():
     empty = Semaphore(IPC_PRIVATE, initial_value=BUF_SIZE,
         flags=IPC_CREAT | IPC_EXCL)
     full = Semaphore(IPC_PRIVATE, flags=IPC_CREAT | IPC_EXCL)
-    # Fork producer
-    print('Forking producer and consumer processes')
+    print('Forking producer')
     producer_id = fork()
     if not producer_id:
         producer(shm, mutex, empty, full)
+    print('Forking consumer')
     consumer_id = fork()
     if not consumer_id:
         consumer(shm, mutex, empty, full)
+    # Wait for children
     wait()
     wait()
-    # Whatever happens above, try to clean up after ourselves
+    # Clean up.
     shm.detach()
     shm.remove()
     mutex.remove()
