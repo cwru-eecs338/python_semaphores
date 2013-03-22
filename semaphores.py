@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+This is a Python (>= 3.2) port of the semaphore example code at
+https://github.com/cwru-eecs338/semaphores . It uses System V semaphores and
+shared memory through the sysv_ipc module.
+"""
 from os import fork, getpid, wait
 import struct
 from sys import exit
@@ -12,7 +17,7 @@ def print_with_pid(*objects, **kwargs):
     if objects:
         # Bit of a hack: if you provide at least one positional argument,
         # replace the first one (regardless of type) with a string that
-        # starts with the process ID.
+        # starts with the right-justified process ID.
         objects = list(objects)
         objects[0] = '{:>5}: {}'.format(getpid(), objects[0])
     __builtins__.print(*objects, **kwargs)
