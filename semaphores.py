@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from collections import namedtuple
 from os import fork, getpid, wait
 import struct
 from sys import exit
@@ -28,6 +27,7 @@ class LuckyCharm:
     """
     MAX_CHARM_NAME_LENGTH = 32
     STRUCT_PACK_FORMAT = '{}sii'.format(MAX_CHARM_NAME_LENGTH)
+    STRUCT_PACK_SIZE = struct.calcsize(STRUCT_PACK_FORMAT)
 
     def __init__(self, name, ansi_color, setting):
         """
@@ -47,12 +47,20 @@ class LuckyCharm:
 
     def pack(self):
         """
-        Returns this LuckyCharm's data as a tuple. Encodes the
-        name to a bytes object so that the struct module can
-        accept it.
+        Returns this LuckyCharm's data packed as a byte string.
+
+        Important: since the unpacked values are passed directly
+        to this class's constructor in the "unpack" class method,
+        the order that the fields are packed must match the
+        order of the fields in the constructor.
         """
         return struct.pack(self.STRUCT_PACK_FORMAT,
-            self.name.encode(), self.setting, self.ansi_color)
+            self.name.encode(), self.ansi_color, self.setting)
+
+    @classmethod
+    def unpack(cls, data):
+        args = struct.unpack(cls.STRUCT_PACK_FORMAT, data)
+        return cls(*args)
 
 CHARMS = [
     LuckyCharm('PINK HEART',       35, 1),
@@ -63,21 +71,50 @@ CHARMS = [
     LuckyCharm('PURPLE HORSESHOE', 35, 0),
     LuckyCharm('RED BALLOON',      31, 0),
 ]
-SHARED_MEMORY_SIZE = struct.calcsize(LuckyCharm.STRUCT_PACK_FORMAT) * BUF_SIZE
+CHARM_COUNT = len(CHARMS)
+SHARED_MEMORY_SIZE = LuckyCharm.STRUCT_PACK_SIZE * BUF_SIZE
 
 def consumer(shm, mutex, empty, full):
+    nextc = 0
+    for _ in range(CHARM_COUNT):
+        full.acquire()
+        mutex.acquire()
+        offset = nextc * LuckyCharm.STRUCT_PACK_SIZE
+        packed_data = shm.read(LuckyCharm.STRUCT_PACK_SIZE, offset=offset)
+        charm = LuckyCharm.unpack(packed_data)
+        print('    Consuming: {}'.format(charm))
+        nextc = (nextc + 1) % BUF_SIZE
+        mutex.release()
+        empty.release()
     exit()
 
 def producer(shm, mutex, empty, full):
+    nextp = 0
+    for charm in CHARMS:
+        empty.acquire()
+        mutex.acquire()
+        print('Producing: {}'.format(charm))
+        offset = nextp * LuckyCharm.STRUCT_PACK_SIZE
+        packed_data = charm.pack()
+        # Note: can *not* use "offset" as a keyword argument.
+        # It isn't processed correctly in version 0.6.4 of the
+        # sysv_ipc package.
+        shm.write(packed_data, offset)
+        nextp = (nextp + 1) % BUF_SIZE
+        mutex.release()
+        full.release()
     exit()
 
 def main():
     # Set up shared data
     shm = SharedMemory(IPC_PRIVATE, size=SHARED_MEMORY_SIZE, flags=IPC_CREAT)
-    mutex = Semaphore(IPC_PRIVATE, flags=IPC_CREAT | IPC_EXCL)
-    empty = Semaphore(IPC_PRIVATE, flags=IPC_CREAT | IPC_EXCL)
+    mutex = Semaphore(IPC_PRIVATE, initial_value=1,
+        flags=IPC_CREAT | IPC_EXCL)
+    empty = Semaphore(IPC_PRIVATE, initial_value=BUF_SIZE,
+        flags=IPC_CREAT | IPC_EXCL)
     full = Semaphore(IPC_PRIVATE, flags=IPC_CREAT | IPC_EXCL)
     # Fork producer
+    print('Forking producer and consumer processes')
     producer_id = fork()
     if not producer_id:
         producer(shm, mutex, empty, full)
