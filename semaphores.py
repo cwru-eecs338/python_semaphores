@@ -47,7 +47,12 @@ class LuckyCharm:
         struct.unpack), it is decoded to a str.
         """
         if isinstance(name, bytes):
-            name = name.decode()
+            # The struct module will dutifully give us the zero
+            # bytes that follow the actual data that we want to
+            # use for "name". Find the first zero byte and use
+            # only the data up to that point.
+            first_zero_byte = name.index(b'\x00')
+            name = name[:first_zero_byte].decode()
         self.name = name[:self.MAX_CHARM_NAME_LENGTH]
         self.ansi_color = ansi_color
         self.setting = setting
