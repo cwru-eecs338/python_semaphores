@@ -33,27 +33,32 @@ class LuckyCharm:
     Inspired by the python_threads example at
     https://github.com/cwru-eecs338/python_threads
     """
-    # TODO: Be smarter about character encoding.
-    # Either encode as Latin-1 or multiply by 4 for the
-    # maximum width of a character in UTF-8.
+    # This is the maximum number of *bytes* that can be stored in shared
+    # memory using UTF-8 encoding.
     MAX_CHARM_NAME_LENGTH = 32
     STRUCT_PACK_FORMAT = '{}sii'.format(MAX_CHARM_NAME_LENGTH)
     STRUCT_PACK_SIZE = struct.calcsize(STRUCT_PACK_FORMAT)
 
     def __init__(self, name, ansi_color, setting):
         """
-        The "name" argument is truncated to MAX_CHARM_NAME_LENGTH
-        characters. If it is a bytes object (e.g. as returned by
+        If the "name" argument is a bytes object (e.g. as returned by
         struct.unpack), it is decoded to a str.
+
+        The str version of "name" is then encoded to UTF-8 bytes, truncated
+        to MAX_CHARM_NAME_LENGTH and then decoded back to a str. If the
+        byte string is truncated in the middle of a multi-byte character,
+        the entire character is dropped.
         """
         if isinstance(name, bytes):
             # The struct module will dutifully give us the zero
             # bytes that follow the actual data that we want to
-            # use for "name". Find the first zero byte and use
-            # only the data up to that point.
-            first_zero_byte = name.index(b'\x00')
-            name = name[:first_zero_byte].decode()
-        self.name = name[:self.MAX_CHARM_NAME_LENGTH]
+            # use for "name". Strip any zero bytes before decoding.
+            name = name.strip(b'\x00').decode()
+        # If we lose the latter part of a multi-byte character when we
+        # truncate to MAX_CHARM_NAME_LENGTH bytes, drop the entire character
+        # with errors='ignore'
+        self.name = name.encode()[:self.MAX_CHARM_NAME_LENGTH].decode(
+            errors='ignore')
         self.ansi_color = ansi_color
         self.setting = setting
 
