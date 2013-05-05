@@ -41,24 +41,26 @@ class LuckyCharm:
 
     def __init__(self, name, ansi_color, setting):
         """
-        If the "name" argument is a bytes object (e.g. as returned by
-        struct.unpack), it is decoded to a str.
+        The "name" argument is internally stored as a str, and can be
+        passed to this constructor as either str or bytes.
 
-        The str version of "name" is then encoded to UTF-8 bytes, truncated
-        to MAX_CHARM_NAME_LENGTH and then decoded back to a str. If the
-        byte string is truncated in the middle of a multi-byte character,
-        the entire character is dropped.
+        This constructor first ensures that it has "name" in the form of
+        a bytes object -- if name is a str it is encoded to UTF-8 bytes.
+        This byte string is then truncated to MAX_CHARM_NAME_LENGTH and
+        decoded back to a str. If the byte string is truncated in the
+        middle of a multi-byte character, the entire character is dropped.
         """
-        if isinstance(name, bytes):
-            # The struct module will dutifully give us the zero
-            # bytes that follow the actual data that we want to
-            # use for "name". Strip any zero bytes before decoding.
-            name = name.strip(b'\x00').decode()
+        if isinstance(name, str):
+            # We need a bytes object to truncate the string correctly.
+            name = name.encode()
+        # If we got this bytes object from the struct module, we probably
+        # have extra zero bytes that follow the actual data that we want
+        # to use for "name". Strip any zero bytes before decoding.
+        name = name.strip(b'\x00')
         # If we lose the latter part of a multi-byte character when we
         # truncate to MAX_CHARM_NAME_LENGTH bytes, drop the entire character
         # with errors='ignore'
-        self.name = name.encode()[:self.MAX_CHARM_NAME_LENGTH].decode(
-            errors='ignore')
+        self.name = name[:self.MAX_CHARM_NAME_LENGTH].decode(errors='ignore')
         self.ansi_color = ansi_color
         self.setting = setting
 
